@@ -7,7 +7,6 @@ RAW_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "raw-data")
 
 # ---------------------------------------------------------------------------
 # Tool #1: search_product_catalog
-# TODO: Hoàn thiện hàm này — đọc file product_catalog.json, lọc theo category và max_price.
 # ---------------------------------------------------------------------------
 
 def search_product_catalog(category: str, max_price: int = 999999999999) -> List[Dict[str, Any]]:
@@ -21,15 +20,24 @@ def search_product_catalog(category: str, max_price: int = 999999999999) -> List
     Returns:
         Danh sách sản phẩm phù hợp điều kiện.
     """
+    # Ghép đường dẫn đến file dữ liệu; trả danh sách rỗng nếu file chưa tồn tại.
     catalog_file = os.path.join(RAW_DATA_DIR, "product_catalog.json")
-    # TODO: Kiểm tra file tồn tại, đọc JSON, lọc sản phẩm
-    # Gợi ý: Lọc theo p["category"] == category AND p["price_vnd"] <= max_price
-    return []
+    if not os.path.isfile(catalog_file):
+        return []
+
+    # Đọc JSON thành danh sách các dict; UTF-8 giúp đọc đúng tiếng Việt.
+    with open(catalog_file, "r", encoding="utf-8") as file:
+        products = json.load(file)
+
+    # List comprehension giữ lại sản phẩm thỏa cả danh mục và giá tối đa.
+    return [
+        product for product in products
+        if product["category"] == category and product["price_vnd"] <= max_price
+    ]
 
 
 # ---------------------------------------------------------------------------
 # Tool #2: submit_support_ticket
-# TODO: Hoàn thiện hàm này — tạo ticket mới và lưu vào support_tickets.json.
 # ---------------------------------------------------------------------------
 
 def submit_support_ticket(
@@ -48,20 +56,91 @@ def submit_support_ticket(
     Returns:
         Thông tin ticket vừa tạo bao gồm ticket_id, status.
     """
+    # Nạp các ticket cũ để giữ lại khi lưu; lần đầu chưa có file thì dùng danh sách rỗng.
     tickets_file = os.path.join(RAW_DATA_DIR, "support_tickets.json")
-    # TODO: Load existing tickets, generate new ticket_id, append new ticket, save file
-    # Gợi ý: ticket_id = f"TK-{today}-{seq:03d}" với today = datetime.now().strftime("%Y%m%d")
-    return {"ticket_id": "TODO", "status": "TODO"}
+    if os.path.isfile(tickets_file):
+        with open(tickets_file, "r", encoding="utf-8") as file:
+            tickets = json.load(file)
+    else:
+        tickets = []
+
+    # Lấy giờ địa phương kèm múi giờ; định dạng ngày YYYYMMDD để đưa vào mã ticket.
+    now = datetime.now().astimezone()
+    today = now.strftime("%Y%m%d")
+    # Tách số thứ tự sau dấu '-' cuối cùng, lấy số lớn nhất rồi cộng 1.
+    # Số thứ tự tăng xuyên suốt các ngày; default=0 giúp ticket đầu tiên có số 1.
+    seq = max(
+        (int(ticket["ticket_id"].rsplit("-", 1)[1]) for ticket in tickets),
+        default=0,
+    ) + 1
+    # Tạo ticket ở trạng thái mới mở. :03d đệm số 0, ví dụ 1 thành 001.
+    # isoformat() lưu thời điểm theo chuẩn ISO 8601; category mặc định là general.
+    ticket = {
+        "ticket_id": f"TK-{today}-{seq:03d}",
+        "customer_name": customer_name,
+        "issue_description": issue_description,
+        "priority": priority,
+        "status": "open",
+        "created_at": now.isoformat(),
+        "category": "general",
+    }
+    # Thêm ticket mới vào danh sách và tạo thư mục dữ liệu nếu chưa có.
+    tickets.append(ticket)
+    os.makedirs(RAW_DATA_DIR, exist_ok=True)
+    # Chế độ 'w' ghi lại toàn bộ danh sách, gồm cả ticket cũ và mới.
+    # ensure_ascii=False giữ nguyên chữ tiếng Việt; indent=2 giúp JSON dễ đọc.
+    with open(tickets_file, "w", encoding="utf-8") as file:
+        json.dump(tickets, file, ensure_ascii=False, indent=2)
+    # Trả thông tin ticket vừa lưu để bên gọi có thể hiển thị mã và trạng thái.
+    return ticket
 
 
 # ---------------------------------------------------------------------------
 # TOOL_DEFINITIONS — JSON Schemas mô tả cho LLM
-# TODO: Định nghĩa JSON Schema cho từng tool (name, description, parameters).
 # ---------------------------------------------------------------------------
 
 TOOL_DEFINITIONS = [
-    # TODO: Thêm schema cho "search_product_catalog"
-    # TODO: Thêm schema cho "submit_support_ticket"
+    {
+        "name": "search_product_catalog",
+        "description": "Find Vingroup products by category and price cap.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": ["xe_dien", "du_lich"],
+                    "description": "xe_dien: electric vehicles; du_lich: travel.",
+                },
+                "max_price": {
+                    "type": "integer",
+                    "description": "Inclusive VND cap; omit for no cap.",
+                    "default": 999999999999,
+                },
+            },
+            "required": ["category"],
+        },
+    },
+    {
+        "name": "submit_support_ticket",
+        "description": "Create a support ticket; return its ID and status.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_name": {
+                    "type": "string",
+                },
+                "issue_description": {
+                    "type": "string",
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "default": "medium",
+                },
+            },
+            "required": ["customer_name", "issue_description"],
+        },
+    },
 ]
 
 
